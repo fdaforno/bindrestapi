@@ -1,0 +1,12 @@
+[Unit]
+Description=Bind Rest API
+
+[Service]
+Type=notify
+ExecStart=/opt/bind9rest/bind9rest
+WorkingDirectory=/opt/bind9rest
+WatchdogSec=30s
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+[App]
+PortListen = ":12345"
+LogsPath = "bind9rest.log"
+NsupdateKeyPath = "/etc/rndc.key"
