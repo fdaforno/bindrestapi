@@ -31,24 +31,29 @@ type AppInfo struct {
 	NsupdateKeyPath string
 }
 type RecordA struct {
-	Name  string `json:"name"`
-	Class string `json:"class"`
-	IP    string `json:"ip"`
+	Name   string `json:"name"`
+	IP     string `json:"ip"`
+	Commit bool   `json:"NoWrite"`
+}
+type RecordPTR struct {
+	Name   string `json:"name"`
+	IP     string `json:"ip"`
+	Commit bool   `json:"NoWrite"`
 }
 type RecordCNAME struct {
 	Name   string `json:"name"`
-	Class  string `json:"class"`
 	Target string `json:"target"`
+	Commit bool   `json:"NoWrite"`
 }
-type RecordSRV struct {
+
+/*type RecordSRV struct {
 	service  string
-	class    string
+	ip       string
 	priority string
 	weight   string
 	port     string
 	target   string
-}
-
+}*/
 type Response struct {
 	Info  string
 	Error string
@@ -63,7 +68,7 @@ func nsupdate(command string) {
 
 	stdin, err := subProcess.StdinPipe()
 	if err != nil {
-		fmt.Println(err) //replace with logger, or anything you want
+		fmt.Println(err)
 	}
 	defer stdin.Close() // the doc says subProcess.Wait will close it, but I'm not sure, so I kept this line
 
@@ -71,7 +76,7 @@ func nsupdate(command string) {
 	subProcess.Stderr = os.Stderr
 
 	if err = subProcess.Start(); err != nil { //Use start, not run
-		log.Error("nsupdate ->", err) //replace with logger, or anything you want
+		log.Error("nsupdate ->", err)
 	}
 
 	io.WriteString(stdin, "server 127.0.0.1\n\r")
@@ -80,7 +85,7 @@ func nsupdate(command string) {
 	io.WriteString(stdin, "send\n\r")
 	io.WriteString(stdin, "quit\n\r")
 	subProcess.Wait()
-	duration := time.Duration(2) * time.Second
+	duration := time.Duration(3) * time.Second
 	time.Sleep(duration)
 }
 func CheckDnsEntry(t string, data string) bool {
@@ -88,27 +93,27 @@ func CheckDnsEntry(t string, data string) bool {
 	if t == "A" {
 		a, err := net.LookupAddr(data)
 		if err != nil {
+			log.Info("CheckDnsEntry -> " + err.Error())
 			return false
 		}
 		if len(a) <= 0 {
+			log.Info("CheckDnsEntry -> CNAME " + data + " not exist")
 			return false
 		} else {
+			log.Info("CheckDnsEntry -> " + data + " is A of " + a[0])
 			return true
 		}
 	} else if t == "CNAME" {
 
 		cname, err := net.LookupCNAME(data)
 		if err != nil {
-			fmt.Println("CheckDnsEntry -> Cname not exist ")
-			log.Info("CheckDnsEntry -> Cname not exist ")
+			log.Info("CheckDnsEntry -> " + err.Error())
 			return false
 		}
 		if len(cname) <= 0 {
-			fmt.Println("CheckDnsEntry -> CNAME " + data + " not exist")
 			log.Info("CheckDnsEntry -> CNAME " + data + " not exist")
 			return false
 		} else {
-			fmt.Println("CheckDnsEntry -> " + data + " is a CNAME  of " + cname)
 			log.Info("CheckDnsEntry -> " + data + " is a CNAME  of " + cname)
 			return true
 		}
@@ -124,155 +129,248 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
 	var jrecordA RecordA
 	var jrecordCNAME RecordCNAME
-	var jrecordSRV RecordSRV
-
+	//var jrecordSRV RecordSRV
+	var jrecordPTR RecordPTR
 	if req.RequestURI == "/A" {
-
+		//decode the json data
 		err := decoder.Decode(&jrecordA)
-
 		if err != nil {
-			log.WithFields(log.Fields{"Note": &jrecordA}).Error("CreateDNSEntry A -> Error parsing input jsong")
-			w.WriteHeader(500)
+			log.Error("CreateDNSEntry A -> Error parsing input json")
+			returnjson("Error parsing input json", true, w)
 		} else {
-			if jrecordA.Class != "" && jrecordA.IP != "" && jrecordA.Name != "" {
+			//check if all fileds are filled
+			if jrecordA.IP != "" && jrecordA.Name != "" {
+				//check if the ip is valid
+				if net.ParseIP(jrecordA.IP) != nil {
+					//check if already exist
+					if CheckDnsEntry("A", jrecordA.IP) == false {
+						//create the nsupdate command
+						nsupdatecommand := "update add " + jrecordA.Name + " 300 A " + jrecordA.IP + "\n\r"
 
-				nsupdatecommand := "update add " + jrecordA.Name + " 300 " + jrecordA.Class + " " + jrecordA.IP + "\n\r"
-				log.WithFields(log.Fields{"Command": nsupdatecommand}).Info("CreateDNSEntry -> ")
-
-				//nsupdate(nsupdatecommand)
-				w.WriteHeader(200)
+						if jrecordA.Commit {
+							log.Info("CreateDNSEntry -> Command=" + nsupdatecommand)
+							nsupdate(nsupdatecommand)
+						} else {
+							log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+						}
+						if CheckDnsEntry("A", jrecordA.IP) == true {
+							log.Info("CreateDNSEntry A -> Done")
+							returnjson("ok", false, w)
+						} else {
+							returnjson("Error updating entry dns", true, w)
+						}
+					} else {
+						returnjson("Alredy exist", true, w)
+					}
+				} else {
+					log.Error("CreateDNSEntry -> Ip=" + jrecordA.IP + " is not valid")
+					returnjson("Error ip malformed", true, w)
+				}
 			} else {
-				w.WriteHeader(500)
+				log.Error("CreateDNSEntry -> json field empty")
+				returnjson("Json field empty", true, w)
 			}
-		}
+		} /*-----/A ----*/
 	} else if req.RequestURI == "/CNAME" {
+		//decode the json data
 		err := decoder.Decode(&jrecordCNAME)
-
 		if err != nil {
 			log.Error("CreateDNSEntry CNAME -> Error parsing input json")
 			returnjson("Error parsing input json", true, w)
 		} else {
-
-			if jrecordCNAME.Class != "" && jrecordCNAME.Target != "" && jrecordCNAME.Name != "" {
-				/*----- CHECK IF CNAME ALREADY EXIST ----*/
-
-				if CheckDnsEntry(jrecordCNAME.Class, jrecordCNAME.Name) == false {
-					/*----- CREATE CNAME ----*/
-
-					nsupdatecommand := "update add " + jrecordCNAME.Name + " 300 " + jrecordCNAME.Class + " " + jrecordCNAME.Target + "\n\r"
-					fmt.Println(nsupdatecommand)
-					log.Info("CreateDNSEntry -> nscommand=" + nsupdatecommand)
-
-					nsupdate(nsupdatecommand)
-
-					/*----- CHECK IF CNAME EXIST ----*/
-					if CheckDnsEntry(jrecordCNAME.Class, jrecordCNAME.Name) == false {
-						log.Error("qualcosa e andato storto")
-						returnjson("Error updating entry dns", true, w)
-
+			//check if all fileds are filled
+			if jrecordCNAME.Target != "" && jrecordCNAME.Name != "" {
+				// check if CNAME already exist
+				if CheckDnsEntry("CNAME", jrecordCNAME.Name) == false {
+					//create the nsupdate command
+					nsupdatecommand := "update add " + jrecordCNAME.Name + " 300 CNAME " + jrecordCNAME.Target + "\n\r"
+					if jrecordCNAME.Commit {
+						log.Info("ExecuteNsUpdate -> nscommand=" + nsupdatecommand)
+						nsupdate(nsupdatecommand)
 					} else {
+						log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+					}
+					//verify if the dns entry are load
+					if CheckDnsEntry("CNAME", jrecordCNAME.Name) == true {
+						log.Info("CreateDNSEntry CNAME -> Done")
 						returnjson("ok", false, w)
+					} else {
+						log.Error("CreateDNSEntry CNAME -> Error updating entry dns!!!!")
+						returnjson("Error updating entry dns", true, w)
 					}
 				} else {
-					/*----- CNAME ALREADY EXISTT ----*/
-
 					returnjson("Alredy exist", false, w)
 				}
-
 			} else {
 				returnjson("Some field was empty", true, w)
 			}
-		}
-
-	} else if req.RequestURI == "/SRV" {
-		fmt.Println("trying to parse as record SRV")
-		err := decoder.Decode(&jrecordSRV)
+		} /*-----/CNAME ----*/
+	} else if req.RequestURI == "/PTR" {
+		//decode the json data
+		err := decoder.Decode(&jrecordPTR)
 		if err != nil {
-			w.Write([]byte("Error"))
-			w.WriteHeader(500)
+			log.Error("CreateDNSEntry PTR -> Error parsing input json")
+			returnjson("Error parsing input json", true, w)
 		} else {
-			if jrecordSRV.service != "" {
-				fmt.Println(jrecordSRV.port)
-				w.Write([]byte("OK"))
+			//check if all fileds are filled
+			if jrecordPTR.IP != "" && jrecordPTR.Name != "" {
+				//check if the ip is valid
+				if net.ParseIP(jrecordPTR.IP) != nil {
+					//check if already exist
+					if CheckDnsEntry("PTR", jrecordPTR.IP) == false {
+						//create the nsupdate command
+						nsupdatecommand := "update add " + jrecordPTR.IP + ".in-addr.arpa. 300 PTR " + jrecordPTR.Name + "\n\r"
+
+						if jrecordA.Commit {
+							log.Info("CreateDNSEntry -> Command=" + nsupdatecommand)
+							nsupdate(nsupdatecommand)
+						} else {
+							log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+						}
+						if CheckDnsEntry("PTR", jrecordPTR.IP) == true {
+							log.Info("CreateDNSEntry PTR -> Done")
+							returnjson("ok", false, w)
+						} else {
+							returnjson("Error updating entry dns", true, w)
+						}
+					} else {
+						returnjson("Alredy exist", true, w)
+					}
+				} else {
+					log.Error("CreateDNSEntry -> Ip=" + jrecordPTR.IP + " is not valid")
+					returnjson("Error ip malformed", true, w)
+				}
 			} else {
-				w.WriteHeader(500)
+				log.Error("CreateDNSEntry -> json field empty")
+				returnjson("Json field empty", true, w)
 			}
 		}
-	}
+	} /*-----/SRV ----*/
 }
 
 func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
 	var jrecordA RecordA
 	var jrecordCNAME RecordCNAME
-	var jrecordSRV RecordSRV
+	//var jrecordSRV RecordSRV
+	var jrecordPTR RecordPTR
 	if req.RequestURI == "/A" {
-
+		//decode the json data
 		err := decoder.Decode(&jrecordA)
-
 		if err != nil {
-			log.WithFields(log.Fields{"Note": &jrecordA}).Error("DeleteDNSEntry A -> Error parsing input jsong")
-			w.WriteHeader(500)
-		} else {
-			if jrecordA.Class != "" && jrecordA.IP != "" && jrecordA.Name != "" {
-
-				nsupdatecommand := "update add " + jrecordA.Name + " 300 " + jrecordA.Class + " " + jrecordA.IP + "\n\r"
-				log.WithFields(log.Fields{"Command": nsupdatecommand}).Info("CreateDNSEntry -> ")
-
-				//nsupdate(nsupdatecommand)
-				w.WriteHeader(200)
-			} else {
-				w.WriteHeader(500)
-			}
-		}
-	} else if req.RequestURI == "/CNAME" {
-		err := decoder.Decode(&jrecordCNAME)
-
-		if err != nil {
+			log.Error("DeleteDNSEntry A -> Error parsing input json")
 			returnjson("Error parsing input json", true, w)
 		} else {
+			//check if all fileds are filled
+			if jrecordA.IP != "" && jrecordA.Name != "" {
+				//check if the ip is valid
+				if net.ParseIP(jrecordA.IP) != nil {
+					//check if already exist
+					if CheckDnsEntry("A", jrecordA.IP) == true {
+						//create the nsupdate command
+						nsupdatecommand := "update delete " + jrecordA.Name + " 300 A " + jrecordA.IP + "\n\r"
 
-			if jrecordCNAME.Class != "" && jrecordCNAME.Target != "" && jrecordCNAME.Name != "" {
-				/*----- CHECK IF CNAME ALREADY EXIST ----*/
-				if CheckDnsEntry(jrecordCNAME.Class, jrecordCNAME.Name) == true {
-					/*----- DELETE CNAME ----*/
-					nsupdatecommand := "update delete " + jrecordCNAME.Name + " " + jrecordCNAME.Class + " " + jrecordCNAME.Target + "\n\r"
-					fmt.Println(nsupdatecommand)
-					log.Info("DeleteDNSEntry -> nscommand=" + nsupdatecommand)
-
-					nsupdate(nsupdatecommand)
-
-					/*----- CHECK IF CNAME EXIST ----*/
-					if CheckDnsEntry(jrecordCNAME.Class, jrecordCNAME.Name) == false {
-						returnjson("ok", false, w)
+						if jrecordA.Commit {
+							log.Info("DeleteDNSEntry -> Command=" + nsupdatecommand)
+							nsupdate(nsupdatecommand)
+						} else {
+							log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+						}
+						if CheckDnsEntry("A", jrecordA.IP) == true {
+							log.Error("CreateDNSEntry A -> Error updating entry dns!!!!")
+							returnjson("Error updating entry dns", true, w)
+						} else {
+							log.Info("DeleteDNSEntry A -> Done")
+							returnjson("ok", false, w)
+						}
 					} else {
-						returnjson("Error deleting entry dns", true, w)
+						returnjson("Alredy exist", true, w)
 					}
 				} else {
-					/*----- CNAME ALREADY EXISTT ----*/
-					returnjson("Entry Not exist", true, w)
+					log.Error("CreateDNSEntry -> Ip=" + jrecordA.IP + " is not valid")
+					returnjson("Error ip malformed", true, w)
 				}
-
+			} else {
+				log.Error("CreateDNSEntry -> json field empty")
+				returnjson("Json field empty", true, w)
+			}
+		} /*-----/A ----*/
+	} else if req.RequestURI == "/CNAME" {
+		//decode the json data
+		err := decoder.Decode(&jrecordCNAME)
+		if err != nil {
+			log.Error("DeleteDNSEntry CNAME -> Error parsing input json")
+			returnjson("Error parsing input json", true, w)
+		} else {
+			//check if all fileds are filled
+			if jrecordCNAME.Target != "" && jrecordCNAME.Name != "" {
+				// check if CNAME already exist
+				if CheckDnsEntry("CNAME", jrecordCNAME.Name) == false {
+					//create the nsupdate command
+					nsupdatecommand := "update delete " + jrecordCNAME.Name + " 300 CNAME " + jrecordCNAME.Target + "\n\r"
+					if jrecordCNAME.Commit {
+						log.Info("ExecuteNsUpdate -> nscommand=" + nsupdatecommand)
+						nsupdate(nsupdatecommand)
+					} else {
+						log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+					}
+					//verify if the dns entry are load
+					if CheckDnsEntry("CNAME", jrecordCNAME.Name) == true {
+						log.Error("CreateDNSEntry CNAME -> Error updating entry dns!!!!")
+						returnjson("Error updating entry dns", true, w)
+					} else {
+						log.Info("DeleteDNSEntry CNAME -> Done")
+						returnjson("ok", false, w)
+					}
+				} else {
+					returnjson("Alredy exist", false, w)
+				}
 			} else {
 				returnjson("Some field was empty", true, w)
 			}
-		}
-
-	} else if req.RequestURI == "/SRV" {
-		fmt.Println("trying to parse as record SRV")
-		err := decoder.Decode(&jrecordSRV)
+		} /*-----/CNAME ----*/
+	} else if req.RequestURI == "/PTR" {
+		//decode the json data
+		err := decoder.Decode(&jrecordPTR)
 		if err != nil {
-			w.Write([]byte("Error"))
-			w.WriteHeader(500)
+			log.Error("DeleteDNSEntry PTR -> Error parsing input json")
+			returnjson("Error parsing input json", true, w)
 		} else {
-			if jrecordSRV.service != "" {
-				fmt.Println(jrecordSRV.port)
-				w.Write([]byte("OK"))
+			//check if all fileds are filled
+			if jrecordPTR.IP != "" && jrecordPTR.Name != "" {
+				//check if the ip is valid
+				if net.ParseIP(jrecordPTR.IP) != nil {
+					//check if already exist
+					if CheckDnsEntry("A", jrecordPTR.IP) == true {
+						//create the nsupdate command
+						nsupdatecommand := "update delete " + jrecordPTR.IP + ".in-addr.arpa. 300 PTR " + jrecordPTR.Name + "\n\r"
+
+						if jrecordA.Commit {
+							log.Info("DeleteDNSEntry -> Command=" + nsupdatecommand)
+							nsupdate(nsupdatecommand)
+						} else {
+							log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+						}
+						if CheckDnsEntry("A", jrecordPTR.IP) == true {
+							log.Error("CreateDNSEntry PTR -> Error updating entry dns!!!!")
+							returnjson("Error updating entry dns", true, w)
+						} else {
+							log.Info("DeleteDNSEntry PTR -> Done")
+							returnjson("ok", false, w)
+						}
+					} else {
+						returnjson("Alredy exist", true, w)
+					}
+				} else {
+					log.Error("CreateDNSEntry -> Ip=" + jrecordPTR.IP + " is not valid")
+					returnjson("Error ip malformed", true, w)
+				}
 			} else {
-				w.WriteHeader(500)
+				log.Error("CreateDNSEntry -> json field empty")
+				returnjson("Json field empty", true, w)
 			}
 		}
-	}
+	} /*-----/SRV ----*/
 }
 func returnjson(message string, iserror bool, w http.ResponseWriter) {
 	w.Header().Add("Content-Type", "application/json")
@@ -314,16 +412,18 @@ func main() {
 		fmt.Printf("error opening file: %v", err)
 	}
 	defer f.Close()
-	// Log as JSON instead of the default ASCII formatter.
-	//log.SetFormatter(&log.JSONFormatter{})
+
 	log.SetOutput(f)
 	log.SetLevel(log.DebugLevel)
 
 	router.HandleFunc("/", PrintUsage).Methods("GET")
 	router.HandleFunc("/A", CreateDNSEntry).Methods("POST")
 	router.HandleFunc("/CNAME", CreateDNSEntry).Methods("POST")
+	router.HandleFunc("/PTR", CreateDNSEntry).Methods("POST")
 	router.HandleFunc("/SRV", CreateDNSEntry).Methods("POST")
+	router.HandleFunc("/A", DeleteDNSEntry).Methods("DELETE")
 	router.HandleFunc("/CNAME", DeleteDNSEntry).Methods("DELETE")
+	router.HandleFunc("/PTR", DeleteDNSEntry).Methods("DELETE")
 
 	log.Info("--------------------------------")
 	log.Info("        BIND REST STARTED       ")
