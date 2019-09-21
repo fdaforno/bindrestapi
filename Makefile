@@ -1,11 +1,8 @@
-
 # Replace demo with your desired executable name
 appname := bind9rest
 ver :=$(shell git log -1 --pretty=format:"%H")
 date :=$(shell date -u '+%Y-%m-%d_%I:%M:%S%p')
 sources := $(wildcard *.go)
-
-
 
 build = GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.GitHash=$(ver) -X main.BuildStamp=$(date)" -o compiled/$(appname)$(3)
 tar = cd compiled && cp -f ../config.toml . && tar -cvzf $(1)_$(2).tar.gz $(appname)$(3) && rm $(appname)$(3)

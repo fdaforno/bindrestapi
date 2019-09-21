@@ -13,9 +13,9 @@ import (
 	"os/exec"
 
 	"github.com/BurntSushi/toml"
-	log "github.com/Sirupsen/logrus"
 	"github.com/coreos/go-systemd/daemon"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -23,47 +23,10 @@ var (
 	GitHash    = "Nothing Provided."
 )
 
-type configfile struct {
-	App AppInfo
-}
-type AppInfo struct {
-	PortListen      string
-	LogsPath        string
-	NsupdateKeyPath string
-}
-type RecordA struct {
-	Name   string `json:"name"`
-	IP     string `json:"ip"`
-	Commit bool   `json:"Commit"`
-}
-type RecordPTR struct {
-	Name   string `json:"name"`
-	IP     string `json:"ip"`
-	Commit bool   `json:"NoWrite"`
-}
-type RecordCNAME struct {
-	Name   string `json:"name"`
-	Target string `json:"target"`
-	Commit bool   `json:"Commit"`
-}
-
-/*type RecordSRV struct {
-	service  string
-	ip       string
-	priority string
-	weight   string
-	port     string
-	target   string
-}*/
-type Response struct {
-	Info  string
-	Error string
-}
-
 func nsupdate(command string) {
 	// NS commnad //
 	// server 127.0.0.1
-	// update add 131.182.120.10.in-addr.arpa. 300 PTR kubef5ingress.qa-pci.bravofly.intra
+	// update add 123.123.12.3.in-addr.arpa. 300 PTR something.zone.bravofly.intra
 	// send
 	subProcess := exec.Command("/usr/bin/nsupdate", "-k", "/etc/rndc.key") //Just for testing, replace with your subProcess
 
@@ -101,8 +64,8 @@ func nsupdate(command string) {
 	duration := time.Duration(2) * time.Second
 	time.Sleep(duration)
 }
-func ReverseIPAddress(ip net.IP) string {
 
+func ReverseIPAddress(ip net.IP) string {
 	if ip.To4() != nil {
 		// split into slice by dot .
 		addressSlice := strings.Split(ip.String(), ".")
@@ -113,32 +76,29 @@ func ReverseIPAddress(ip net.IP) string {
 			reverseSlice = append(reverseSlice, octet)
 		}
 
-		// sanity check
-		//fmt.Println(reverseSlice)
-
 		return strings.Join(reverseSlice, ".")
 
-	} else {
-		panic("invalid IPv4 address")
 	}
+	panic("invalid IPv4 address")
 }
-func CheckDnsEntry(t string, data string) bool {
 
-	if t == "A" {
+func CheckDnsEntry(rec, data string) bool {
+	switch rec {
+	case "A":
+
 		a, err := net.LookupAddr(data)
 		if err != nil {
 			log.Info("CheckDnsEntry -> " + err.Error())
 			return false
 		}
 		if len(a) <= 0 {
-			log.Info("CheckDnsEntry -> CNAME " + data + " not exist")
+			log.Info("CheckDnsEntry -> CNAME " + data + " does not have a reverse lookup")
 			return false
 		} else {
 			log.Info("CheckDnsEntry -> " + data + " is A of " + a[0])
 			return true
 		}
-	} else if t == "CNAME" {
-
+	case "CNAME":
 		cname, err := net.LookupCNAME(data)
 		if err != nil {
 			log.Info("CheckDnsEntry -> " + err.Error())
@@ -151,11 +111,13 @@ func CheckDnsEntry(t string, data string) bool {
 			log.Info("CheckDnsEntry -> " + data + " is a CNAME  of " + cname)
 			return true
 		}
-	} else if t == "/SRV" {
-
+	case "/SRV":
+		return true
+	default:
+		return false
 	}
-	return true
 }
+
 func PrintUsage(w http.ResponseWriter, req *http.Request) {
 }
 
@@ -238,7 +200,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 				}*/
 				returnjson("ok", false, w)
 			} else {
-				returnjson("Alredy exist", true, w)
+				returnjson("Already exist", true, w)
 			}
 		} else {
 			returnjson("Some field was empty", true, w)
@@ -251,7 +213,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 			log.Error("CreateDNSEntry PTR -> Error parsing input json")
 			returnjson("Error parsing input json", true, w)
 		} else {
-			//check if all fileds are filled
+			//check if all fields are filled
 			if jrecordPTR.IP != "" && jrecordPTR.Name != "" {
 				//check if the ip is valid
 				if net.ParseIP(jrecordPTR.IP) != nil {
@@ -526,8 +488,8 @@ func main() {
 	log.Info("--------------------------------")
 	log.Info("        BIND REST STARTED       ")
 	log.Info("--------------------------------")
-	log.Info("Git Commit Hash: %s\n", GitHash)
-	log.Info("UTC Build Time: %s\n", BuildStamp)
+	log.Info("Git Commit Hash: ", GitHash)
+	log.Info("UTC Build Time: ", BuildStamp)
 	log.Info("Port: " + conf.App.PortListen)
 	daemon.SdNotify(false, "READY=1")
 	log.Fatal(http.ListenAndServe(conf.App.PortListen, router))
