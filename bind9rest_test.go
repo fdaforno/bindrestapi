@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -72,6 +75,42 @@ func TestReverseIPAddress(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("ReverseIPAddress() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadDNSEntry(t *testing.T) {
+	w := httptest.NewRecorder()
+	type args struct {
+		w   http.ResponseWriter
+		req *http.Request
+	}
+	tests := []struct {
+		name   string
+		args   args
+		hasErr bool
+	}{
+		{"valid record A, present", args{w, httptest.NewRequest(http.MethodGet,
+			"/A",
+			bytes.NewBufferString(`{"name":"abc","ip":"8.8.8.8","commit":true}`))}, false},
+		{"valid record A, not present", args{w, httptest.NewRequest(http.MethodGet,
+			"/A",
+			bytes.NewBufferString(`{"name":"abc","ip":"192.168.0.0","commit":true}`))}, false},
+		{"valid record CNAME, present", args{w, httptest.NewRequest(http.MethodGet,
+			"/CNAME",
+			bytes.NewBufferString(`{"name":"www.facebook.com","target":"star-mini.c10r.facebook.com","commit":true}`))}, false},
+		{"valid record CNAME, not present", args{w, httptest.NewRequest(http.MethodGet,
+			"/CNAME",
+			bytes.NewBufferString(`{"name":"www.blahblah.blah","target":"aaaaaaaa","commit":true}`))}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ReadDNSEntry(w, tt.args.req)
+			if !tt.hasErr {
+				assert.Contains(t, string(w.Body.Bytes()), "FOUND")
+			} else {
+				assert.Contains(t, string(w.Body.Bytes()), "Error parsing input json")
 			}
 		})
 	}

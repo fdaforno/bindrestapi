@@ -93,10 +93,10 @@ func DnsEntryExists(rec, data string) bool {
 		if len(a) <= 0 {
 			log.Infof("DnsEntryExists -> %s %s does not have a reverse lookup", rec, data)
 			return false
-		} else {
-			log.Infof("DnsEntryExists -> %s is A of %s", data, a[0])
-			return true
 		}
+		log.Infof("DnsEntryExists -> %s is A of %s", data, a[0])
+		return true
+
 	case "CNAME":
 		cname, err := net.LookupCNAME(data)
 		if err != nil {
@@ -106,10 +106,10 @@ func DnsEntryExists(rec, data string) bool {
 		if len(cname) <= 0 {
 			log.Infof("DnsEntryExists -> CNAME %s does not exist", data)
 			return false
-		} else {
-			log.Infof("DnsEntryExists -> %s is CNAME of %s", data, cname)
-			return true
 		}
+		log.Infof("DnsEntryExists -> %s is CNAME of %s", data, cname)
+		return true
+
 	case "/SRV":
 		return true
 	default:
@@ -125,7 +125,8 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 	var jrecordCNAME RecordCNAME
 	//var jrecordSRV RecordSRV
 	var jrecordPTR RecordPTR
-	if req.RequestURI == "/A" {
+	switch req.RequestURI {
+	case "/A":
 		//decode the json data
 		err := decoder.Decode(&jrecordA)
 		if err != nil {
@@ -172,7 +173,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 			returnJSON("Json field empty", true, w)
 		}
 		/*-----/A ----*/
-	} else if req.RequestURI == "/CNAME" {
+	case "/CNAME":
 		//decode the json data
 		err := decoder.Decode(&jrecordCNAME)
 		if err != nil {
@@ -183,7 +184,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 		//check if all fileds are filled
 		if jrecordCNAME.Target != "" && jrecordCNAME.Name != "" {
 			// check if CNAME already exist
-			if DnsEntryExists("CNAME", jrecordCNAME.Name) == false {
+			if !DnsEntryExists("CNAME", jrecordCNAME.Name) {
 				//create the nsupdate command
 				nsupdatecommand := "update add " + jrecordCNAME.Name + " 300 CNAME " + jrecordCNAME.Target + "\n\r"
 				if jrecordCNAME.Commit {
@@ -201,54 +202,59 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 					returnJSON("Error updating entry dns", true, w)
 				}*/
 				returnJSON("ok", false, w)
-			} else {
-				returnJSON("Already exist", true, w)
 			}
-		} else {
-			returnJSON("Some field was empty", true, w)
-		} /*-----/CNAME ----*/
-
-	} else if req.RequestURI == "/PTR" {
+			returnJSON("Already exist", true, w)
+			return
+		}
+		returnJSON("Some field was empty", true, w)
+		return
+		/*-----/CNAME ----*/
+	case "/PTR":
 		//decode the json data
 		err := decoder.Decode(&jrecordPTR)
 		if err != nil {
 			log.Error("CreateDNSEntry PTR -> Error parsing input json")
 			returnJSON("Error parsing input json", true, w)
-		} else {
-			//check if all fields are filled
-			if jrecordPTR.IP != "" && jrecordPTR.Name != "" {
-				//check if the ip is valid
-				if net.ParseIP(jrecordPTR.IP) != nil {
-					//check if already exist
-					if DnsEntryExists("PTR", jrecordPTR.IP) == false {
-						//create the nsupdate command
-						nsupdatecommand := "update add " + jrecordPTR.IP + ".in-addr.arpa. 300 PTR " + jrecordPTR.Name + "\n\r"
-
-						if jrecordA.Commit {
-							log.Info("CreateDNSEntry -> Command=" + nsupdatecommand)
-							nsupdate(nsupdatecommand)
-						} else {
-							log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
-						} /*
-							if DnsEntryExists("PTR", jrecordPTR.IP) == true {
-								log.Info("CreateDNSEntry PTR -> Done")
-								returnJSON("ok", false, w)
-							} else {
-								returnJSON("Error updating entry dns", true, w)
-							}*/
-						returnJSON("ok", false, w)
-					} else {
-						returnJSON("Already exist", true, w)
-					}
-				} else {
-					log.Error("CreateDNSEntry -> Ip=" + jrecordPTR.IP + " is not valid")
-					returnJSON("Error ip malformed", true, w)
-				}
-			} else {
-				log.Error("CreateDNSEntry -> json field empty")
-				returnJSON("Json field empty", true, w)
-			}
+			return
 		}
+		//check if all fields are filled
+		if jrecordPTR.IP != "" && jrecordPTR.Name != "" {
+			//check if the ip is valid
+			if net.ParseIP(jrecordPTR.IP) != nil {
+				//check if already exist
+				if !DnsEntryExists("PTR", jrecordPTR.IP) {
+					//create the nsupdate command
+					nsupdatecommand := "update add " + jrecordPTR.IP + ".in-addr.arpa. 300 PTR " + jrecordPTR.Name + "\n\r"
+
+					if jrecordA.Commit {
+						log.Info("CreateDNSEntry -> Command=" + nsupdatecommand)
+						nsupdate(nsupdatecommand)
+					} else {
+						log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
+					} /*
+						if DnsEntryExists("PTR", jrecordPTR.IP) == true {
+							log.Info("CreateDNSEntry PTR -> Done")
+							returnJSON("ok", false, w)
+						} else {
+							returnJSON("Error updating entry dns", true, w)
+						}*/
+					returnJSON("ok", false, w)
+					return
+				}
+				returnJSON("Already exist", true, w)
+				return
+			}
+			log.Error("CreateDNSEntry -> Ip=" + jrecordPTR.IP + " is not valid")
+			returnJSON("Error ip malformed", true, w)
+			return
+		}
+		log.Error("CreateDNSEntry -> json field empty")
+		returnJSON("Json field empty", true, w)
+		return
+
+	default:
+		returnJSON("Unsupported DNS record type", true, w)
+		return
 	} /*-----/SRV ----*/
 }
 
@@ -258,7 +264,8 @@ func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 	var jrecordCNAME RecordCNAME
 	//var jrecordSRV RecordSRV
 	var jrecordPTR RecordPTR
-	if req.RequestURI == "/A" {
+	switch req.RequestURI {
+	case "/A":
 		//decode the json data
 		err := decoder.Decode(&jrecordA)
 		if err != nil {
@@ -266,7 +273,7 @@ func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 			returnJSON("Error parsing input json", true, w)
 			return
 		}
-		//check if all fileds are filled
+		//check if all fields are filled
 		if jrecordA.IP != "" && jrecordA.Name != "" {
 			//check if already exist
 			if DnsEntryExists("A", jrecordA.IP) {
@@ -297,17 +304,17 @@ func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 						returnJSON("ok", false, w)
 					}*/
 				returnJSON("ok", false, w)
-			} else {
-				returnJSON("Alredy exist", true, w)
+				return
 			}
-			returnJSON("Alredy exist", true, w)
+			returnJSON("Already exist", true, w)
+			return
 
-		} else {
-			log.Error("CreateDNSEntry -> json field empty")
-			returnJSON("Json field empty", true, w)
 		}
+		log.Error("CreateDNSEntry -> json field empty")
+		returnJSON("Json field empty", true, w)
+		return
 		/*-----/A ----*/
-	} else if req.RequestURI == "/CNAME" {
+	case "/CNAME":
 		//decode the json data
 		err := decoder.Decode(&jrecordCNAME)
 		if err != nil {
@@ -335,16 +342,16 @@ func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 					log.Info("DeleteDNSEntry CNAME -> Done")
 					returnJSON("ok", false, w)
 				}*/
-				returnJSON("ok", false, w)
-
-			} else {
-				returnJSON("Host not found ", true, w)
+				returnJSON("Ok", false, w)
+				return
 			}
-		} else {
-			returnJSON("Some field was empty", true, w)
+			returnJSON("Host not found ", true, w)
+			return
 		}
+		returnJSON("Missing required fields", true, w)
+		return
 		/*-----/CNAME ----*/
-	} else if req.RequestURI == "/PTR" {
+	case "/PTR":
 		//decode the json data
 		err := decoder.Decode(&jrecordPTR)
 		if err != nil {
@@ -375,17 +382,18 @@ func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 							returnJSON("ok", false, w)
 						}*/
 					returnJSON("ok", false, w)
-				} else {
-					returnJSON("Already exist", true, w)
+					return
 				}
-			} else {
-				log.Error("CreateDNSEntry -> Ip=" + jrecordPTR.IP + " is not valid")
-				returnJSON("Error ip malformed", true, w)
+				returnJSON("Already exist", true, w)
+				return
 			}
-		} else {
-			log.Error("CreateDNSEntry -> json field empty")
-			returnJSON("Json field empty", true, w)
+			log.Error("CreateDNSEntry -> Ip=" + jrecordPTR.IP + " is not valid")
+			returnJSON("Error ip malformed", true, w)
+			return
 		}
+		log.Error("CreateDNSEntry -> json field empty")
+		returnJSON("Json field empty", true, w)
+		return
 	}
 	/*-----/SRV ----*/
 }
@@ -395,60 +403,65 @@ func ReadDNSEntry(w http.ResponseWriter, req *http.Request) {
 	var jrecordA RecordA
 	var jrecordCNAME RecordCNAME
 	var jrecordPTR RecordPTR
-	if req.RequestURI == "/A" {
+
+	switch req.RequestURI {
+	case "/A":
 		err := decoder.Decode(&jrecordA)
 		if err != nil {
 			log.Error("CreateDNSEntry A -> Error parsing input json")
 			returnJSON("Error parsing input json", true, w)
+			return
 		}
-		r := DnsEntryExists("A", jrecordA.IP)
-		if r {
+		if DnsEntryExists("A", jrecordA.IP) {
 			returnJSON("FOUND", false, w)
-		} else {
-			returnJSON("NOT FOUND", false, w)
+			return
 		}
+		returnJSON("NOT FOUND", false, w)
+		return
 
-	} else if req.RequestURI == "/CNAME" {
+	case "/CNAME":
 		err := decoder.Decode(&jrecordCNAME)
 		if err != nil {
 			log.Error("CreateDNSEntry CNAME -> Error parsing input json")
 			returnJSON("Error parsing input json", true, w)
 		}
-		r := DnsEntryExists("CNAME", jrecordCNAME.Name)
-		if r {
+		if DnsEntryExists("CNAME", jrecordCNAME.Name) {
 			returnJSON("FOUND", false, w)
-		} else {
-			returnJSON("NOT FOUND", false, w)
+			return
 		}
+		returnJSON("NOT FOUND", false, w)
+		return
 
-	} else if req.RequestURI == "/PTR" {
+	case "/PTR":
 		err := decoder.Decode(&jrecordPTR)
 		if err != nil {
 			log.Error("CreateDNSEntry PTR -> Error parsing input json")
 			returnJSON("Error parsing input json", true, w)
 		}
-		r := DnsEntryExists("PTR", jrecordPTR.IP)
-		if r {
+		if DnsEntryExists("PTR", jrecordPTR.IP) {
 			returnJSON("FOUND", false, w)
-		} else {
-			returnJSON("NOT FOUND", false, w)
+			return
 		}
+		returnJSON("NOT FOUND", false, w)
+		return
 	}
 
 }
-func returnJSON(message string, iserror bool, w http.ResponseWriter) {
+func returnJSON(message string, isErr bool, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	r := Response{}
-	if iserror {
+	if isErr {
 		w.WriteHeader(http.StatusBadRequest)
 		r.Error = message
-		rjson, _ := json.Marshal(r)
-		w.Write(rjson)
+		json.NewEncoder(w).Encode(&r)
+		//rjson, _ := json.Marshal(r)
+		//w.Write(rjson)
 	} else {
 		w.WriteHeader(http.StatusAccepted)
 		r.Info = message
-		rjson, _ := json.Marshal(r)
-		w.Write(rjson)
+		json.NewEncoder(w).Encode(&r)
+		//rjson, _ := json.Marshal(r)
+		//w.Write(rjson)
 	}
 }
 
@@ -473,7 +486,7 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 	f, err := os.OpenFile(conf.App.LogsPath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
-		log.Warnf("error opening destination log file %s: %v; fallback to StdOut", conf.App.LogsPath, err)
+		log.Warnf("error opening destination log file %s: %v; falling back to StdOut", conf.App.LogsPath, err)
 	} else {
 		log.SetOutput(f)
 		defer f.Close()
