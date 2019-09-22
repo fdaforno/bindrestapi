@@ -1,6 +1,6 @@
 package main
 
-type configfile struct {
+type Configuration struct {
 	App AppInfo
 }
 
