@@ -110,7 +110,7 @@ func TestReadDNSEntry(t *testing.T) {
 			if !tt.hasErr {
 				assert.Contains(t, string(w.Body.Bytes()), "FOUND")
 			} else {
-				assert.Contains(t, string(w.Body.Bytes()), "Error parsing input json")
+				assert.Contains(t, string(w.Body.Bytes()), "parsing JSON input")
 			}
 		})
 	}
