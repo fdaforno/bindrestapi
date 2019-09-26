@@ -121,15 +121,14 @@ func DnsEntryExists(rec, data string) bool {
 func PrintUsage(w http.ResponseWriter, req *http.Request) {}
 
 func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(req.Body)
-	var jrecordA RecordA
+	var recordA RecordA
 	var jrecordCNAME RecordCNAME
 	var jrecordPTR RecordPTR
 	//var jrecordSRV RecordSRV
 
 	switch req.RequestURI {
 	case "/A":
-		out, err := jrecordA.Create(req.Body)
+		out, err := recordA.Create(req.Body)
 		if err!=nil {
 			msg := fmt.Errorf("could not create record: %v", err)
 			log.Errorf("CreateDNSEntry -> %v", msg)
@@ -141,7 +140,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 	//	TODO implement new interface
 	case "/CNAME":
 		//decode the json data
-		err := decoder.Decode(&jrecordCNAME)
+		err := json.NewDecoder(req.Body).Decode(&jrecordCNAME)
 		if err != nil {
 			log.Error("CreateDNSEntry CNAME -> Error parsing input json")
 			returnJSON("Error parsing input json", true, w)
@@ -178,7 +177,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 		/*-----/CNAME ----*/
 	case "/PTR":
 		//decode the json data
-		err := decoder.Decode(&jrecordPTR)
+		err := json.NewDecoder(req.Body).Decode(&jrecordPTR)
 		if err != nil {
 			log.Error("CreateDNSEntry PTR -> Error parsing input json")
 			returnJSON("Error parsing input json", true, w)
@@ -193,7 +192,7 @@ func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
 					//create the dnsExec command
 					nsupdatecommand := "update add " + jrecordPTR.IP + ".in-addr.arpa. 300 PTR " + jrecordPTR.Name + "\n\r"
 
-					if jrecordA.Commit {
+					if recordA.Commit {
 						log.Info("CreateDNSEntry -> Command=" + nsupdatecommand)
 						dnsExec(nsupdatecommand)
 					} else {
@@ -229,8 +228,9 @@ func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
 	var recordA RecordA
 	var jrecordCNAME RecordCNAME
-	//var jrecordSRV RecordSRV
 	var jrecordPTR RecordPTR
+	//var jrecordSRV RecordSRV
+
 	switch req.RequestURI {
 	case "/A":
 		out, err := recordA.Delete(req.Body)
