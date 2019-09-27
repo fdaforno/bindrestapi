@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -19,8 +20,8 @@ import (
 )
 
 var (
-	BuildStamp = "Nothing Provided."
-	GitHash    = "Nothing Provided."
+	BuildStamp string
+	GitHash    string
 )
 
 func dnsExec(command string) {
@@ -121,169 +122,97 @@ func DnsEntryExists(rec, data string) bool {
 func PrintUsage(w http.ResponseWriter, req *http.Request) {}
 
 func CreateDNSEntry(w http.ResponseWriter, req *http.Request) {
-	//var jrecordSRV RecordSRV
-	//var record DnsRecord
+	var record DNSRecord
 	switch req.RequestURI {
 	case "/A":
 		var recordA RecordA
-		out, err := recordA.Create(req.Body)
-		if err != nil {
-			msg := fmt.Errorf("could not create record: %v", err)
-			log.Errorf("CreateDNSEntry -> %v", msg)
-			returnJSON(msg.Error(), true, w)
-			return
-		}
-		returnJSON(out, false, w)
-		return
-	//	TODO implement new interface
+		record = &recordA
+		break
 	case "/CNAME":
 		var recordCNAME RecordCNAME
-		out, err := recordCNAME.Create(req.Body)
-		if err != nil {
-			msg := fmt.Errorf("could not create record: %v", err)
-			log.Errorf("CreateDNSEntry -> %v", msg)
-			returnJSON(msg.Error(), true, w)
-			return
-		}
-		returnJSON(out, false, w)
-		return
-
+		record = &recordCNAME
+		break
 	case "/PTR":
 		var recordPTR RecordPTR
-		out, err := recordPTR.Create(req.Body)
-		if err != nil {
-			msg := fmt.Errorf("could not create record: %v", err)
-			log.Errorf("CreateDNSEntry -> %v", msg)
-			returnJSON(msg.Error(), true, w)
-			return
-		}
-		returnJSON(out, false, w)
-		return
+		record = &recordPTR
+		break
 
 	default:
-		returnJSON("Unsupported DNS record type", true, w)
+		returnJSON(ErrUnsupportedRecType, true, w)
 		return
-	} /*-----/SRV ----*/
+	}
+	//polymorphism FTW
+	out, err := record.Create(req.Body)
+	if err != nil {
+		msg := fmt.Errorf("could not create record: %v", err)
+		log.Errorf("CreateDNSEntry -> %v", msg)
+		returnJSON(msg.Error(), true, w)
+		return
+	}
+	returnJSON(out, false, w)
+	return
 }
 
 func DeleteDNSEntry(w http.ResponseWriter, req *http.Request) {
+	var record DNSRecord
 	switch req.RequestURI {
 	case "/A":
 		var recordA RecordA
-		out, err := recordA.Delete(req.Body)
-		if err != nil {
-			msg := fmt.Errorf("could not delete record: %v", err)
-			log.Errorf("DeleteDNSEntry -> %v", msg)
-			returnJSON(msg.Error(), true, w)
-			return
-		}
-		returnJSON(out, false, w)
-		return
-
+		record = &recordA
+		break
 	case "/CNAME":
 		var recordCNAME RecordCNAME
-		out, err := recordCNAME.Delete(req.Body)
-		if err != nil {
-			msg := fmt.Errorf("could not delete record: %v", err)
-			log.Errorf("DeleteDNSEntry -> %v", msg)
-			returnJSON(msg.Error(), true, w)
-			return
-		}
-		returnJSON(out, false, w)
-		return
-
+		record = &recordCNAME
+		break
 	case "/PTR":
-		//decode the json data
 		var recordPTR RecordPTR
-		decoder := json.NewDecoder(req.Body)
-		err := decoder.Decode(&recordPTR)
-		if err != nil {
-			log.Error("DeleteDNSEntry PTR -> Error parsing input json")
-			returnJSON("Error parsing input json", true, w)
-			return
-		}
-		//check if all fields are filled
-		if recordPTR.IP != "" && recordPTR.Name != "" {
-			//check if the ip is valid
-			if net.ParseIP(recordPTR.IP) != nil {
-				//check if already exist
-				if DnsEntryExists("A", recordPTR.IP) == true {
-					//create the dnsExec command
-					nsupdatecommand := "update delete " + recordPTR.IP + ".in-addr.arpa. 300 PTR " + recordPTR.Name + "\n\r"
+		record = &recordPTR
+		break
 
-					if recordPTR.Commit {
-						log.Info("DeleteDNSEntry -> Command=" + nsupdatecommand)
-						dnsExec(nsupdatecommand)
-					} else {
-						log.Info("TestNsUpdate -> nscommand=" + nsupdatecommand)
-					} /*
-						if DnsEntryExists("PTR", recordPTR.IP) == true {
-							log.Error("CreateDNSEntry PTR -> Error updating entry dns!!!!")
-							returnJSON("Error updating entry dns", true, w)
-						} else {
-							log.Info("DeleteDNSEntry PTR -> Done")
-							returnJSON("ok", false, w)
-						}*/
-					returnJSON("ok", false, w)
-					return
-				}
-				returnJSON("Already exist", true, w)
-				return
-			}
-			log.Error("CreateDNSEntry -> Ip=" + recordPTR.IP + " is not valid")
-			returnJSON("Error ip malformed", true, w)
-			return
-		}
-		log.Error("CreateDNSEntry -> json field empty")
-		returnJSON("Json field empty", true, w)
+	default:
+		returnJSON(ErrUnsupportedRecType, true, w)
 		return
 	}
-	/*-----/SRV ----*/
+
+	out, err := record.Delete(req.Body)
+	if err != nil {
+		msg := fmt.Errorf("could not delete record: %v", err)
+		log.Errorf("DeleteDNSEntry -> %v", msg)
+		returnJSON(msg.Error(), true, w)
+		return
+	}
+	returnJSON(out, false, w)
+	return
 }
 
 func ReadDNSEntry(w http.ResponseWriter, req *http.Request) {
-	var recordA RecordA
-	var recordCNAME RecordCNAME
-	var recordPTR RecordPTR
-
+	var record DNSRecord
 	switch req.RequestURI {
 	// modified with new interface definition
 	case "/A":
-		out, err := recordA.Read(req.Body)
-		if err != nil {
-			log.Error("ReadDNSEntry A -> Error parsing JSON input")
-			returnJSON(out, true, w)
-		}
-		returnJSON(out, false, w)
+		var recordA RecordA
+		record = &recordA
+		break
 
 	case "/CNAME":
-		//TODO implement DNSController interface
-		err := json.NewDecoder(req.Body).Decode(&recordCNAME)
-		if err != nil {
-			log.Error("ReadDNSEntry CNAME -> Error parsing JSON input")
-			returnJSON("Error parsing input json", true, w)
-		}
-		if DnsEntryExists("CNAME", recordCNAME.Name) {
-			returnJSON("FOUND", false, w)
-			return
-		}
-		returnJSON("NOT FOUND", false, w)
-		return
+		var recordCNAME RecordCNAME
+		record = &recordCNAME
+		break
 
 	case "/PTR":
-		err := json.NewDecoder(req.Body).Decode(&recordPTR)
-		if err != nil {
-			log.Error("ReadDNSEntry PTR -> Error parsing JSON input")
-			returnJSON("Error parsing input json", true, w)
-		}
-		if DnsEntryExists("PTR", recordPTR.IP) {
-			returnJSON("FOUND", false, w)
-			return
-		}
-		returnJSON("NOT FOUND", false, w)
+		var recordPTR RecordPTR
+		record = &recordPTR
+
+	default:
+		returnJSON(ErrUnsupportedRecType, true, w)
 		return
 	}
-
+	out, err := record.Read(req.Body)
+	if err != nil {
+		log.Error("ReadDNSEntry A -> Error parsing JSON input")
+		returnJSON(out, true, w)
+	}
+	returnJSON(out, false, w)
 }
 
 func returnJSON(message string, isErr bool, w http.ResponseWriter) {
@@ -309,9 +238,12 @@ func main() {
 	// A and CNAME {"name":"prova", "class":"A", "ip":"10.10.10.2"}
 	// SRV {"service":"prova", "class":"A", "priority":"1", "weight":"10","port":"1111","target":"sticazzi"}
 
+	configPath := flag.String("f", "config.toml", "path to the configuration file")
+	flag.Parse()
+
 	/* --- READ THE CONFIGURUATION FILE --- */
 	var conf Configuration
-	if _, err := toml.DecodeFile("config.toml", &conf); err != nil {
+	if _, err := toml.DecodeFile(*configPath, &conf); err != nil {
 		// handle error, exit because has no sense to continue if config file is not there
 		log.Fatalf("error opening file: %v", err)
 	}

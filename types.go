@@ -13,6 +13,7 @@ const (
 	ErrMalformedIPv4Address = "malformed IP address for record %T: %s"
 	ErrNotFound             = "record %T not found: %s"
 	ErrOverlap              = "record %T already configured: %s"
+	ErrUnsupportedRecType   = "unsupported DNS record type"
 )
 
 type Configuration struct {
@@ -51,12 +52,13 @@ type RecordCNAME struct {
 	port     string
 	target   string
 }*/
+
 type Response struct {
 	Info  string
 	Error string
 }
 
-type DnsRecord interface {
+type DNSRecord interface {
 	Create(r io.Reader) (string, error)
 	Delete(r io.Reader) (string, error)
 	Read(r io.Reader) (string, error)
