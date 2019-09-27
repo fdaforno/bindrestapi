@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/BurntSushi/toml"
+	"github.com/coreos/go-systemd/daemon"
+	"github.com/gorilla/mux"
 	"io"
 	"net"
 	"strings"
@@ -13,9 +16,6 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/BurntSushi/toml"
-	"github.com/coreos/go-systemd/daemon"
-	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,6 +23,57 @@ var (
 	BuildStamp string
 	GitHash    string
 )
+
+func main() {
+	// copy bind9rest.service in /lib/systemd/system/
+	// systemctl enable bind9rest.service
+	// systemctl start bind9rest.service
+	configPath := flag.String("f", "config.toml", "path to the configuration file")
+	flag.Parse()
+
+	/* --- READ THE CONFIGURATION FILE --- */
+	var conf Configuration
+	if _, err := toml.DecodeFile(*configPath, &conf); err != nil {
+		// handle error, exit because has no sense to continue if config file is not there
+		log.Fatalf("error opening configuration file at path %s: %v", *configPath, err)
+	}
+
+	/* ---- INIT LOG ---- */
+	// defaults
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.DebugLevel)
+	// open a file
+	f, err := os.OpenFile(conf.App.LogsPath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0666)
+	if err != nil {
+		log.Warnf("error opening destination log file %s: %v; falling back to StdOut", conf.App.LogsPath, err)
+	} else {
+		log.SetOutput(f)
+		defer f.Close()
+	}
+
+	/* ---- HTTP ROUTES ---- */
+	router := mux.NewRouter()
+	router.HandleFunc("/", PrintUsage).Methods("GET")
+	router.HandleFunc("/A", CreateDNSEntry).Methods("POST")
+	router.HandleFunc("/CNAME", CreateDNSEntry).Methods("POST")
+	router.HandleFunc("/PTR", CreateDNSEntry).Methods("POST")
+	router.HandleFunc("/SRV", CreateDNSEntry).Methods("POST")
+	router.HandleFunc("/A", DeleteDNSEntry).Methods("DELETE")
+	router.HandleFunc("/CNAME", DeleteDNSEntry).Methods("DELETE")
+	router.HandleFunc("/PTR", DeleteDNSEntry).Methods("DELETE")
+	router.HandleFunc("/CNAME", ReadDNSEntry).Methods("GET")
+	router.HandleFunc("/A", ReadDNSEntry).Methods("GET")
+	router.HandleFunc("/PTR", ReadDNSEntry).Methods("GET")
+
+	log.Info("--------------------------------")
+	log.Info("        BIND REST STARTED       ")
+	log.Info("--------------------------------")
+	log.Infof("Git Commit Hash: %s", GitHash)
+	log.Infof("UTC Build Time: %s", BuildStamp)
+	log.Info("Port: " + conf.App.PortListen)
+	daemon.SdNotify(false, "READY=1")
+	log.Fatal(http.ListenAndServe(conf.App.PortListen, router))
+}
 
 func dnsExec(command string) {
 	// NS command
@@ -228,58 +279,4 @@ func returnJSON(message string, isErr bool, w http.ResponseWriter) {
 	r.Info = message
 	json.NewEncoder(w).Encode(&r)
 	return
-}
-
-func main() {
-	// copy bind9rest.service in /lib/systemd/system/
-	// systemctl enable bind9rest.service
-	// systemctl start bind9rest.service
-
-	// A and CNAME {"name":"prova", "class":"A", "ip":"10.10.10.2"}
-	// SRV {"service":"prova", "class":"A", "priority":"1", "weight":"10","port":"1111","target":"sticazzi"}
-
-	configPath := flag.String("f", "config.toml", "path to the configuration file")
-	flag.Parse()
-
-	/* --- READ THE CONFIGURUATION FILE --- */
-	var conf Configuration
-	if _, err := toml.DecodeFile(*configPath, &conf); err != nil {
-		// handle error, exit because has no sense to continue if config file is not there
-		log.Fatalf("error opening file: %v", err)
-	}
-
-	/* ---- INIT LOG ---- */
-	// open a file
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
-	f, err := os.OpenFile(conf.App.LogsPath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
-	if err != nil {
-		log.Warnf("error opening destination log file %s: %v; falling back to StdOut", conf.App.LogsPath, err)
-	} else {
-		log.SetOutput(f)
-		defer f.Close()
-	}
-
-	/* ---- HTTP ROUTES ---- */
-	router := mux.NewRouter()
-	router.HandleFunc("/", PrintUsage).Methods("GET")
-	router.HandleFunc("/A", CreateDNSEntry).Methods("POST")
-	router.HandleFunc("/CNAME", CreateDNSEntry).Methods("POST")
-	router.HandleFunc("/PTR", CreateDNSEntry).Methods("POST")
-	router.HandleFunc("/SRV", CreateDNSEntry).Methods("POST")
-	router.HandleFunc("/A", DeleteDNSEntry).Methods("DELETE")
-	router.HandleFunc("/CNAME", DeleteDNSEntry).Methods("DELETE")
-	router.HandleFunc("/PTR", DeleteDNSEntry).Methods("DELETE")
-	router.HandleFunc("/CNAME", ReadDNSEntry).Methods("GET")
-	router.HandleFunc("/A", ReadDNSEntry).Methods("GET")
-	router.HandleFunc("/PTR", ReadDNSEntry).Methods("GET")
-
-	log.Info("--------------------------------")
-	log.Info("        BIND REST STARTED       ")
-	log.Info("--------------------------------")
-	log.Infof("Git Commit Hash: %s", GitHash)
-	log.Infof("UTC Build Time: %s", BuildStamp)
-	log.Info("Port: " + conf.App.PortListen)
-	daemon.SdNotify(false, "READY=1")
-	log.Fatal(http.ListenAndServe(conf.App.PortListen, router))
 }
