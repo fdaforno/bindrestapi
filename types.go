@@ -56,7 +56,7 @@ type Response struct {
 	Error string
 }
 
-type DnsController interface {
+type DnsRecord interface {
 	Create(r io.Reader) (string, error)
 	Delete(r io.Reader) (string, error)
 	Read(r io.Reader) (string, error)
@@ -124,4 +124,103 @@ func (a *RecordA) Create(r io.Reader) (string, error) {
 
 func (a *RecordA) valid() bool {
 	return a.IP != "" && a.Name != ""
+}
+
+func (c *RecordCNAME) Read(r io.Reader) (string, error) {
+	if err := json.NewDecoder(r).Decode(c); err != nil {
+		return "", fmt.Errorf(ErrMalformedJSON, *c, err)
+	}
+	if DnsEntryExists("CNAME", c.Name) {
+		return "FOUND", nil
+	}
+	return "NOT FOUND", nil
+}
+
+func (c *RecordCNAME) Delete(r io.Reader) (string, error) {
+	if err := json.NewDecoder(r).Decode(c); err != nil {
+		return "", fmt.Errorf(ErrMalformedJSON, *c, err)
+	}
+	if c.valid() {
+		if DnsEntryExists("CNAME", c.Name) {
+			//create the dnsExec command
+			if c.Commit {
+				dnsExec("update delete " + c.Name + " 300 CNAME " + c.Target + "\n\r")
+				return "record has been successfully deleted", nil
+			}
+			return "record is eligible for deletion, but was not deleted", nil
+		}
+		return "record not found", fmt.Errorf(ErrNotFound, *c, c.Name)
+	}
+	return "", fmt.Errorf(ErrMissingFields, *c)
+}
+
+func (c *RecordCNAME) Create(r io.Reader) (string, error) {
+	if err := json.NewDecoder(r).Decode(c); err != nil {
+		return "", fmt.Errorf(ErrMalformedJSON, *c, err)
+	}
+	if c.valid() {
+		if !DnsEntryExists("CNAME", c.Name) {
+			//create the dnsExec command
+			if c.Commit {
+				dnsExec("update add " + c.Name + " 300 CNAME " + c.Target + "\n\r")
+				return "record has been successfully created", nil
+			}
+			return "record is eligible for creation, but was not created", nil
+		}
+		return "record already present", fmt.Errorf(ErrOverlap, *c, c.Name)
+	}
+	return "", fmt.Errorf(ErrMissingFields, *c)
+}
+
+func (c *RecordCNAME) valid() bool {
+	return c.Target != "" && c.Name != ""
+}
+
+func (p *RecordPTR) Read(r io.Reader) (string, error) {
+	if err := json.NewDecoder(r).Decode(p); err != nil {
+		return "", fmt.Errorf(ErrMalformedJSON, *p, err)
+	}
+	if DnsEntryExists("CNAME", p.IP) {
+		return "FOUND", nil
+	}
+	return "NOT FOUND", nil
+}
+
+func (p *RecordPTR) Delete(r io.Reader) (string, error) {
+	if err := json.NewDecoder(r).Decode(p); err != nil {
+		return "", fmt.Errorf(ErrMalformedJSON, *p, err)
+	}
+	if p.valid() {
+		if DnsEntryExists("PTR", p.Name) {
+			if p.Commit {
+				dnsExec("update delete " + p.IP + ".in-addr.arpa. 300 PTR " + p.Name + "\n\r")
+				return "record has been successfully deleted", nil
+			}
+			return "record is eligible for deletion, but was not deleted", nil
+		}
+		return "record not found", fmt.Errorf(ErrNotFound, *p, p.Name)
+	}
+	return "", fmt.Errorf(ErrMissingFields, *p)
+}
+
+func (p *RecordPTR) Create(r io.Reader) (string, error) {
+	if err := json.NewDecoder(r).Decode(p); err != nil {
+		return "", fmt.Errorf(ErrMalformedJSON, *p, err)
+	}
+	if p.valid() {
+		if !DnsEntryExists("CNAME", p.Name) {
+			//create the dnsExec command
+			if p.Commit {
+				dnsExec("update add " + p.IP + ".in-addr.arpa. 300 PTR " + p.Name + "\n\r")
+				return "record has been successfully created", nil
+			}
+			return "record is eligible for creation, but was not created", nil
+		}
+		return "record already present", fmt.Errorf(ErrOverlap, *p, p.Name)
+	}
+	return "", fmt.Errorf(ErrMissingFields, *p)
+}
+
+func (p *RecordPTR) valid() bool {
+	return p.IP != "" && p.Name != ""
 }
